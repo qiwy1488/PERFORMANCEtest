@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>3D Модель с Меню Настроек</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #111; color: #0f0; font-family: monospace; }
+    #info {
+      position: absolute; top: 10px; left: 10px; z-index: 10;
+      background: rgba(0,0,0,0.6); padding: 10px; border-radius: 8px;
+      user-select: none;
+      width: 160px;
+    }
+    #menu {
+      position: absolute; top: 10px; right: 10px; z-index: 10;
+      background: rgba(0,0,0,0.7); padding: 15px; border-radius: 8px;
+      user-select: none;
+      width: 200px;
+      font-size: 14px;
+    }
+    #menu label {
+      display: block;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    #menu select, #menu input[type="checkbox"] {
+      margin-left: 5px;
+      vertical-align: middle;
+    }
+  </style>
+</head>
+<body>
+
+<div id="info">
+  FPS: <span id="fps">0</span><br>
+  Объектов: <span id="count">0</span>
+</div>
+
+<div id="menu">
+  <strong>Настройки:</strong><br><br>
+  <label>
+    Режим анимации:
+    <select id="animMode">
+      <option value="control">Вращение мышью</option>
+      <option value="auto">Авто-вращение</option>
+    </select>
+  </label>
+  <label>
+    <input type="checkbox" id="shadows" checked>
+    Тени
+  </label>
+  <label>
+    <input type="checkbox" id="envMap" checked>
+    Отражения
+  </label>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.154.0/examples/js/libs/stats.min.js"></script>
+
+<script>
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 1000);
+  camera.position.set(0, 1.5, 4);
+
+  const renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  document.body.appendChild(renderer.domElement);
+
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+
+  // Свет
+  const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+  dirLight.position.set(5, 10, 7);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
+  dirLight.shadow.camera.near = 0.5;
+  dirLight.shadow.camera.far = 50;
+  dirLight.shadow.camera.left = -10;
+  dirLight.shadow.camera.right = 10;
+  dirLight.shadow.camera.top = 10;
+  dirLight.shadow.camera.bottom = -10;
+  scene.add(dirLight);
+
+  // Пол
+  const floorGeo = new THREE.PlaneGeometry(20, 20);
+  const floorMat = new THREE.MeshStandardMaterial({color: 0x222222, roughness: 0.8});
+  const floor = new THREE.Mesh(floorGeo, floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = 0;
+  floor.receiveShadow = true;
+  scene.add(floor);
+
+  // Кубическая карта (environment map)
+  const cubeTextureLoader = new THREE.CubeTextureLoader();
+  const envMapURLs = [
+    'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
+    'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
+    'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
+    'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
+    'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
+    'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg',
+  ];
+  const envMap = cubeTextureLoader.load(envMapURLs);
+  scene.environment = envMap;
+
+  // Загрузка модели
+  let model;
+  const loader = new THREE.GLTFLoader();
+
+  loader.load(
+    'https://threejs.org/examples/models/gltf/LeePerrySmith/LeePerrySmith.glb', // пример сложной модели головы
+    function(gltf) {
+      model = gltf.scene;
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = true;
+          child.receiveShadow = true;
+          if (envMapCheckbox.checked) {
+            child.material.envMap = envMap;
+            child.material.envMapIntensity = 1;
+          }
+        }
+      });
+      model.position.y = 0;
+      model.scale.set(1.5, 1.5, 1.5);
+      scene.add(model);
+    },
+    undefined,
+    function(error) {
+      console.error('Ошибка загрузки модели:', error);
+    }
+  );
+
+  // FPS
+  const stats = new Stats();
+  document.body.appendChild(stats.dom);
+  const fpsEl = document.getElementById('fps');
+  const countEl = document.getElementById('count');
+
+  // Настройки UI
+  const animModeSelect = document.getElementById('animMode');
+  const shadowsCheckbox = document.getElementById('shadows');
+  const envMapCheckbox = document.getElementById('envMap');
+
+  // Обновление настроек
+  function updateSettings() {
+    // Тени
+    renderer.shadowMap.enabled = shadowsCheckbox.checked;
+    dirLight.castShadow = shadowsCheckbox.checked;
+    floor.receiveShadow = shadowsCheckbox.checked;
+
+    if (model) {
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = shadowsCheckbox.checked;
+          child.receiveShadow = shadowsCheckbox.checked;
+        }
+      });
+    }
+
+    // Отражения
+    if (model) {
+      model.traverse((child) => {
+        if (child.isMesh) {
+          if (envMapCheckbox.checked) {
+            child.material.envMap = envMap;
+            child.material.envMapIntensity = 1;
+          } else {
+            child.material.envMap = null;
+            child.material.envMapIntensity = 0;
+          }
+          child.material.needsUpdate = true;
+        }
+      });
+    }
+
+    // Окружение сцены (чтобы отражался фон)
+    scene.environment = envMapCheckbox.checked ? envMap : null;
+
+    // Режим анимации
+    if (animModeSelect.value === 'control') {
+      controls.enabled = true;
+    } else {
+      controls.enabled = false;
+    }
+  }
+
+  animModeSelect.addEventListener('change', updateSettings);
+  shadowsCheckbox.addEventListener('change', updateSettings);
+  envMapCheckbox.addEventListener('change', updateSettings);
+
+  // Инициализация настроек
+  updateSettings();
+
+  // Анимация
+  function animate() {
+    requestAnimationFrame(animate);
+
+    if (model && animModeSelect.value === 'auto') {
+      model.rotation.y += 0.01;
+    }
+
+    controls.update();
+    renderer.render(scene, camera);
+
+    stats.update();
+
+    fpsEl.textContent = Math.round(stats.getFPS ? stats.getFPS() : stats.dom.textContent.match(/\d+/)[0]);
+    countEl.textContent = scene.children.length;
+  }
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+
+  animate();
+</script>
+
+</body>
+</html>
